@@ -8,8 +8,9 @@ from astrbot.core.platform.astr_message_event import AstrMessageEvent
 from astrbot.core.message.message_event_result import MessageChain
 from astrbot.core.message.components import Plain, At
 from astrbot.core import logger
+from astrbot.core.star.base import Star
 
-class GroupFilterPlugin:
+class GroupFilterPlugin(Star):
     def __init__(self, config: AstrBotConfig, provider_manager: ProviderManager):
         self.provider_manager = provider_manager
         self.config_data = config  # 配置对象，可直接通过字典方式访问
@@ -26,6 +27,8 @@ class GroupFilterPlugin:
     async def initialize(self):
         """插件初始化时调用"""
         logger.info(f"群聊过滤器插件初始化完成，监控群组: {self.monitor_groups}")
+        # 注册消息事件监听器
+        self.context.event_bus.subscribe("message", self.on_message)
 
     async def on_message(self, event: AstrMessageEvent):
         """核心消息处理入口"""
