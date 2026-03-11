@@ -1,0 +1,7 @@
+plugin_name: astrbot_plugin_group_filter
+author: "AI Assistant"
+version: "1.0.0"
+description: "群聊消息审核插件，利用AI过滤违规消息并自动撤回。"
+display_name: "群聊过滤器"
+support_platforms:
+  - aiocqhttp

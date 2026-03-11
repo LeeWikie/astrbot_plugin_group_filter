@@ -1,0 +1,20 @@
+{
+    "monitor_groups": {
+        "description": "监控的群聊ID白名单（多个ID用英文逗号分隔）",
+        "type": "string",
+        "default": "",
+        "hint": "例如: 754697401,573545488"
+    },
+    "filter_prompt": {
+        "description": "AI判断消息的提示词",
+        "type": "string",
+        "default": "你是一个群聊管理员，请判断以下消息是否违规。违规内容包括但不限于：广告、恶意刷屏、人身攻击、政治敏感。如果消息违规，请输出<filtered>；如果消息正常，请输出<none>。只输出标签，不要有其他内容。",
+        "hint": "提示词中可以包含变量，但需代码内处理"
+    },
+    "violation_message": {
+        "description": "检测到违规时的警告消息",
+        "type": "string",
+        "default": "⚠️ 检测到违规内容，您的消息已被撤回。请遵守群规，文明交流。",
+        "hint": "将@违规成员并发送此消息"
+    }
+}
