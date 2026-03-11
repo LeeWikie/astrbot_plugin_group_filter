@@ -2,21 +2,17 @@ import os
 import json
 import time
 from typing import List, Optional
-from astrbot.core import AstrBotConfig
-from astrbot.core.provider.func_tool import ProviderManager
-from astrbot.core.platform.astr_message_event import AstrMessageEvent
-from astrbot.core.message.message_event_result import MessageChain
-from astrbot.core.message.components import Plain, At
-from astrbot.core import logger
-from astrbot.core.star.base import Star
+from astrbot.api.event import filter, AstrMessageEvent
+from astrbot.api.star import Context, Star
+from astrbot.api.message_components import Plain, At
+from astrbot.api import logger
 
 class GroupFilterPlugin(Star):
-    def __init__(self, config: AstrBotConfig, provider_manager: ProviderManager):
-        self.provider_manager = provider_manager
-        self.config_data = config  # 配置对象，可直接通过字典方式访问
-        self.monitor_groups = self._parse_group_ids(config.get("monitor_groups", ""))
-        self.filter_prompt = config.get("filter_prompt", "")
-        self.violation_message = config.get("violation_message", "")
+    def __init__(self, context: Context):
+        super().__init__(context)
+        self.monitor_groups = self._parse_group_ids(context.get_config().get("monitor_groups", ""))
+        self.filter_prompt = context.get_config().get("filter_prompt", "")
+        self.violation_message = context.get_config().get("violation_message", "")
 
     def _parse_group_ids(self, group_str: str) -> List[str]:
         """将配置中的逗号分隔字符串转为列表"""
@@ -24,18 +20,13 @@ class GroupFilterPlugin(Star):
             return []
         return [g.strip() for g in group_str.split(",") if g.strip()]
 
-    async def initialize(self):
-        """插件初始化时调用"""
-        logger.info(f"群聊过滤器插件初始化完成，监控群组: {self.monitor_groups}")
-        # 注册消息事件监听器
-        self.context.event_bus.subscribe("message", self.on_message)
-
-    async def on_message(self, event: AstrMessageEvent):
+    @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
+    async def on_group_message(self, event: AstrMessageEvent):
         """核心消息处理入口"""
         # 1. 提取群ID
         group_id = self._extract_group_id(event)
         if not group_id:
-            return  # 非群消息
+            return  # 无法获取群ID
 
         # 2. 白名单检查
         if group_id not in self.monitor_groups:
@@ -45,7 +36,7 @@ class GroupFilterPlugin(Star):
         message_text = event.get_message_str()
 
         # 4. 调用AI判断
-        judgment = await self._judge_with_ai(message_text)
+        judgment = await self._judge_with_ai(event, message_text)
 
         # 5. 若违规，处理撤回和警告
         if judgment == "filtered":
@@ -72,26 +63,27 @@ class GroupFilterPlugin(Star):
             pass
         return None
 
-    async def _judge_with_ai(self, message: str) -> str:
+    async def _judge_with_ai(self, event: AstrMessageEvent, message: str) -> str:
         """调用模型判断消息是否违规"""
         # 构建完整提示词，可考虑将配置文件要求动态插入
         full_prompt = f"{self.filter_prompt}\n消息内容：{message}"
 
-        # 获取默认文本模型提供商
-        provider = self.provider_manager.get_provider()
-        if not provider:
+        # 获取当前会话使用的聊天模型ID
+        umo = event.unified_msg_origin
+        try:
+            provider_id = await self.context.get_current_chat_provider_id(umo=umo)
+        except:
             logger.error("未配置模型提供商，跳过审核")
             return "none"
 
         try:
-            response = await provider.text_chat(
-                prompt=full_prompt,
-                session_id=None,      # 无上下文
-                contexts=[],
-                system_prompt=None
+            # 使用新的LLM调用方式
+            llm_resp = await self.context.llm_generate(
+                chat_provider_id=provider_id,
+                prompt=full_prompt
             )
             # 清理并解析结果
-            result = response.strip().lower()
+            result = llm_resp.completion_text.strip().lower()
             if "<filtered>" in result:
                 return "filtered"
             elif "<none>" in result:
@@ -134,12 +126,12 @@ class GroupFilterPlugin(Star):
         """在群内发送@警告"""
         sender_id = event.get_sender_id()
         # 构造消息链：At + 空格 + 固定文本
-        warning_chain = MessageChain([
+        warning_chain = [
             At(qq=sender_id),
             Plain(text=" " + self.violation_message)
-        ])
-        await event.send(warning_chain)
+        ]
+        yield event.chain_result(warning_chain)
 
-    async def on_plugin_stop(self):
+    async def terminate(self):
         """插件停止时清理"""
         logger.info("群聊过滤器插件已停止")
